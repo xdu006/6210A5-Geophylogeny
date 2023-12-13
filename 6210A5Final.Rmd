@@ -1,0 +1,268 @@
+---
+title: "6210A5Final"
+author: "Cynthia Du"
+date: "2023-12-13"
+output: html_document
+---
+```{r Import Libraries, echo=TRUE, warning=FALSE}
+
+library(tidyverse)
+library(dplyr)
+library(ggforce)
+library(ape)
+library(phangorn)
+library(phytools)
+library(mapdata)
+library(viridis)
+library(DECIPHER)
+library(Biostrings)
+
+```
+
+```{r Define Functions}
+
+#Function to output a sequence length distribution histogram given a set of seqeunces
+sequenceLengthDistributionHistogram <- function(nucleotidesColumn) {
+  hist(nchar(nucleotidesColumn), 
+       main = "Sequence Length Distributions", 
+       xlab = "Sequence Length", 
+       ylab = "Number of Sequences") }
+
+```
+
+```{r Acquire Available Data}
+
+#Get data from BOLD
+dfIxodesFull <- read_tsv(file = ("http://www.boldsystems.org/index.php/API_Public/combined?taxon=Ixodes&geo=Canada&format=tsv"))
+
+#Check Dataset
+#summary(dfIxodesFull)
+table(dfIxodesFull$species_name)
+
+#Remove all entries with missing species names, locations, or sequences, and ensure that sequences are all COI-5P
+dfIxodesDataAvailable <- subset(dfIxodesFull, is.na(species_name) == F & 
+                                is.na(lat) == F & 
+                                is.na(lon) == F & 
+                                is.na(nucleotides) == F & 
+                                grepl("COI-5P", marker_codes) == T)
+
+#Check difference in number of total species.
+print(sprintf("Number of species prior to cleaning: %s", length(unique(dfIxodesFull$species_name))))
+print(sprintf("Number of species after cleaning: %s", length(unique(dfIxodesDataAvailable$species_name))))
+print(sprintf("Total BINs reduced: %s", length(unique(dfIxodesFull$species_name))-length(unique(dfIxodesDataAvailable$species_name))))
+#Check difference in number of total number of records.
+print(sprintf("Number of records prior to cleaning: %s", nrow(dfIxodesFull)))
+print(sprintf("Number of records after cleaning: %s", nrow(dfIxodesDataAvailable)))
+print(sprintf("Total records reduced: %s", nrow(dfIxodesFull)-nrow(dfIxodesDataAvailable)))
+#Note: record reduced are withing acceptable ranges
+
+```
+
+```{r Check Data Validity, echo=FALSE, message=FALSE, results='hide'}
+
+#Check that data makes sense
+unique(dfIxodesDataAvailable$lat) #should look like normal latitudes
+unique(dfIxodesDataAvailable$lon) #should look like normal longitudes
+unique(dfIxodesDataAvailable$marker_codes) # should only contain COI-5P
+unique(dfIxodesDataAvailable$species_name) #should have no NAs and look like good species names
+table(dfIxodesDataAvailable$species_name) #check species distribution
+#Note: species distribution skewed as expected toward the disease carrying species. 
+
+#Ensure longitude and latitude within expected limits 
+print("Values that exceed lon/lat domain: ")
+table(abs(dfIxodesDataAvailable$lat)>=90 | abs(dfIxodesDataAvailable$lon)>=180) 
+#Note: lat and lon are in reasonable limits (all false as expected)
+
+#Check nucleotide length distribution
+sequenceLengthDistributionHistogram(dfIxodesDataAvailable$nucleotides)
+#Note: Some outlier nucleotide data in the 800s region. Could be due to species differences. Will address more in data cleaning.
+
+```
+
+```{r Visualization: Graph of Entries Available}
+
+#Create Graphic for Ixodes Species Distribution in Canada
+SpeciesDistributionGraph <- ggplot(as.data.frame(table(dfIxodesDataAvailable$species_name)[order(table(dfIxodesDataAvailable$species_name))]), aes(x=Var1, y=Freq, fill=Var1)) +
+  geom_bar(stat="identity") +
+  facet_zoom(ylim = c(0, 10)) +
+  geom_text(aes(label = Freq), vjust = -0.5, col="#3A3B3C") +
+  ggtitle("Ixodes Reported Species Distribution in Canada") +
+  xlab("Species")+
+  ylab("Frequency Reported on BOLD") +
+  guides(fill=guide_legend(title="Species")) +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_text(size = 10),
+        axis.title.x=element_text(size = 15, face="bold"),
+        axis.title.y=element_text(size = 15, face="bold"),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        text = element_text(family = "AppleGothic"))
+SpeciesDistributionGraph
+
+```
+Figure 1. Distribution of BOLD entries available for each species of *Ixodes* in Canada. Miniture graph to the left represents a zoomed in view of the same data. Record counts are labeled as numbers above respective bars. Majority species is *Ixodes scapularis* as expected due to concern as main carrier of lyme disease. 
+
+```{r Process Outlier in Nucleotide Sequences, echo=FALSE, message=FALSE, results='hide'}
+
+#Remember our previous finding that there were some outline sequences in the 800nts range
+#Now we check for the species in that range
+subset(dfIxodesDataAvailable, nchar(nucleotides) > 800)$species_name
+#Note: looks like there are 2 species accounting for 6 sequences in this range.
+
+#We can also see this through visualization 1, but we can double check here the number of each species here 
+subset(dfIxodesDataAvailable, species_name == "Ixodes scapularis")$species_name
+subset(dfIxodesDataAvailable, species_name == "Ixodes spinipalpis")$species_name
+#Ixodes scapulari has more than 300 other sequences in the 600nts range, and Ixodes spinipalpis have 5 other sequences in the acceptable range (vs 1 in the 800s range), therefore it is safe for us to discard these sequences
+
+#Discard outlier sequences
+dfIxodesDataAvailable <- subset(dfIxodesDataAvailable, nchar(nucleotides) < 800)
+
+#Check distribution again (much better)
+sequenceLengthDistributionHistogram(dfIxodesDataAvailable$nucleotides)
+
+#Based on the graph, we check the max range sequences again, and remove accordingly
+subset(dfIxodesDataAvailable, nchar(nucleotides) > 670)$species_name #our only represetation of Ixodes cookei (keep)
+subset(dfIxodesDataAvailable, nchar(nucleotides) < 640)$species_name #likely specific scapularis variant (remove for this study because we don't want to randomly pick one of these as our rep. sequence for this species; it would be a poor representation)
+dfIxodesDataAvailable <- subset(dfIxodesDataAvailable, nchar(nucleotides) > 640)
+
+```
+
+```{r Clean Seqeunce Data and Pick Random Representitive Sequences for Each Species}
+
+#Set up some parameters for sequence structure & alignment
+missing.data <- 0.01
+length.var <- 50
+chosen.model <- "TN93"
+clustering.threshold <- 0.03
+clustering.method <- "single" #single linkage
+
+#Clean sequences 
+dfIxodesDataAvailable <- dfIxodesDataAvailable %>%
+  mutate(nucleotides2 = str_remove_all(nucleotides, "^N+|N+$|-")) %>%   #Remove starting and ending gaps or Ns
+  filter(str_count(nucleotides2, "N") <= (missing.data * str_count(nucleotides)))  #Remove sequences with greater than 1% Ns
+  #length is not filtered as we did the histogram analysis earlier already 
+  #and the only representation of some species may be filtered out
+
+  
+#Pick one sequence to represent each species
+
+#prime dataframe with some data
+#for every species in the list of species names in available data, 
+#get a subset of of that species and randomly choose one row
+#finally, remove the primer
+set.seed(200)
+repSequences <- dfIxodesDataAvailable[1,] 
+for(species in unique(dfIxodesDataAvailable$species_name)) { 
+  repSequences <- add_row(repSequences, subset(dfIxodesDataAvailable, species_name == species)[sample(nrow(subset(dfIxodesDataAvailable, species_name == species)), 1), ] ) }
+repSequences <- repSequences[-1,] 
+
+#Check length distribution is appropriate
+sequenceLengthDistributionHistogram(repSequences$nucleotides2)
+```
+
+```{r Create Distance Matrix}
+
+#Change to appropriate data format for alignment
+repSequences <- as.data.frame(repSequences) #change to dataframe
+repSequences$nucleotides3 <- DNAStringSet(repSequences$nucleotides2) #Add column with DNA stringset
+names(repSequences$nucleotides3) <- repSequences$species_name #Add names to DNA stringset
+repSequences$nucleotides3 #Preliminary examination of sequences
+BrowseSeqs(repSequences$nucleotides3) #Preliminary examination of sequences
+
+#Align sequences
+alignment <- DNAStringSet(muscle::muscle(repSequences$nucleotides3, gapopen = -1000, log = "log.tx", verbose = T), use.names = T)
+alignment #view alignment
+BrowseSeqs(alignment) #view alignment in browser
+#tested a couple other conditions, this one was great
+
+#convert to DNAbin
+alignmentBIN <- as.DNAbin(alignment)
+
+#create distance matrix between sequences (model choices)
+distanceMatrix <- dist.dna(alignmentBIN, model = chosen.model, as.matrix = TRUE, pairwise.deletion = TRUE)
+
+```
+
+```{r Construct Phylogeny}
+#clustering (view plot)
+clusters <- DECIPHER::TreeLine(myDistMatrix = distanceMatrix,
+                                   method = clustering.method,
+                                   cutoff = clustering.threshold,
+                                   showPlot = TRUE,
+                                   type = "dendrogram",
+                                   verbose = TRUE)
+clusters
+phyloData <- as.hclust(clusters)
+phyloData <- as.phylo(phyloData)
+```
+
+```{r Maximum Liklihood Phylogeny (not used)}
+#Other phylogeny methods, but failed to get correct data format for plotting
+
+#try maxinum liklihood
+
+#make neighbour joining tree
+njTree <- nj(distanceMatrix)
+plot(njTree, main="Ixodes UPGMA Neighbour Joining Phylogeny")
+#compute likelihood data based on tree and evolutionary model
+njTreeLikelihood <- pml(njTree, as.phyDat(alignmentBIN), k=4) #calculate likelihood
+
+#optimizetree
+njTreeLikelihoodOptimized <- optim.pml(njTreeLikelihood, optNni=TRUE, optBf=TRUE, optQ=TRUE, optGamma=TRUE)
+
+#check if the optimization was significant
+anova(njTreeLikelihood, njTreeLikelihoodOptimized) #it is significantly different (p<0.001)
+#Check AIC
+AIC(njTreeLikelihood)
+AIC(njTreeLikelihoodOptimized)
+#lower AIC value is better, optimization was a success
+
+#Check out the different trees
+plot(njTreeLikelihood, main="Ixodes UPGMA Neighbour Joining Phylogeny")
+plot(njTreeLikelihoodOptimized, main="Ixodes UPGMA Neighbour Joining Phylogeny")
+#Better than clustering!
+
+```
+
+```{r Find Best Model (from common models) and Model Phylogeny (not used)}
+#Other phylogeny methods, but failed to get correct data format for plotting
+
+mt <- modelTest(as.phyDat(alignmentBIN), model=c("JC", "F81", "K80", "HKY", "SYM", "GTR"), control = pml.control(trace = 0))
+best_mt <- pml_bb(mt, control = pml.control(trace = 0))
+
+bs <- bootstrap.pml(best_mt, bs=100, optNni=TRUE, control = pml.control(trace = 0))
+plotBS(midpoint(best_mt$tree), p = .5, type="p", digits=2, main="Ultrafast bootstrap")
+plotBS(midpoint(best_mt$tree), bs, p = 50, type="p", main="Standard bootstrap")
+plotBS(midpoint(best_mt$tree), bs, p = 50, type="p", digits=0, method = "TBE", main="Transfer bootstrap")
+
+#save standard bootstrap phylogeny
+tree_stdbs <- plotBS(best_mt$tree, bs, type = "n")
+
+```
+
+```{r Plot Geophylogeny}
+
+#Simplify location data
+dfcurated <- dfIxodesDataAvailable[ , c("species_name", "lat", "lon")]
+dfcurated <- distinct(dfcurated, species_name, lat, lon) #remove repeats
+row_names <- dfcurated$species_name #save species name
+dfcurated$species_name <- NULL #remove species name
+dfcurated <- as.matrix(dfcurated) #convert to matrix
+row.names(dfcurated) <- row_names #add back species name as row names
+
+is.ultrametric(phyloData)
+is.binary(phyloData)
+all.equal(phyloData$tip.label, unique(rownames(dfcurated)))
+
+cols<-setNames(sample(viridis(n=Ntip(phyloData))),
+               phyloData$tip.label)
+
+tree_map <- phylo.to.map(tree = phyloData, coords = dfcurated, rotate = F, type = "phylogram", regions = "Canada", plot = F)
+
+plot(tree_map, xlim = c(-150, -50), ylim = c(40, 90), split = c(0.5, 0.5), fsize = 1, ftype = "i", asp = 2, from.tip = F, map.bg = "lightgray", lwd = 0, pts = T, colors = cols, cex.points = 1.5, delimit_map = T, direction="rightwards")
+
+```
+
+
+
+
