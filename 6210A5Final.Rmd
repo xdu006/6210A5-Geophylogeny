@@ -2,9 +2,13 @@
 title: "6210A5Final"
 author: "Cynthia Du"
 date: "2023-12-13"
-output: html_document
+output:
+  word_document: default
+  html_document: default
 ---
-```{r Import Libraries, echo=TRUE, warning=FALSE}
+```{r Import Libraries, echo=TRUE, message=FALSE, results="hide"}
+
+###IMPORT LIBRARIES
 
 library(tidyverse)
 library(dplyr)
@@ -21,6 +25,8 @@ library(Biostrings)
 
 ```{r Define Functions}
 
+###DEFINING FUNCTIONS
+
 #Function to output a sequence length distribution histogram given a set of seqeunces
 sequenceLengthDistributionHistogram <- function(nucleotidesColumn) {
   hist(nchar(nucleotidesColumn), 
@@ -31,6 +37,8 @@ sequenceLengthDistributionHistogram <- function(nucleotidesColumn) {
 ```
 
 ```{r Acquire Available Data}
+
+###AQUIRE AVAILABLE DATA
 
 #Get data from BOLD
 dfIxodesFull <- read_tsv(file = ("http://www.boldsystems.org/index.php/API_Public/combined?taxon=Ixodes&geo=Canada&format=tsv"))
@@ -60,6 +68,8 @@ print(sprintf("Total records reduced: %s", nrow(dfIxodesFull)-nrow(dfIxodesDataA
 
 ```{r Check Data Validity, echo=FALSE, message=FALSE, results='hide'}
 
+###CHECK DATA VALIDITY
+
 #Check that data makes sense
 unique(dfIxodesDataAvailable$lat) #should look like normal latitudes
 unique(dfIxodesDataAvailable$lon) #should look like normal longitudes
@@ -79,7 +89,9 @@ sequenceLengthDistributionHistogram(dfIxodesDataAvailable$nucleotides)
 
 ```
 
-```{r Visualization: Graph of Entries Available}
+```{r Visualization: Graph of Entries Available, warning=FALSE}
+
+###VISUALIZATION 1
 
 #Create Graphic for Ixodes Species Distribution in Canada
 SpeciesDistributionGraph <- ggplot(as.data.frame(table(dfIxodesDataAvailable$species_name)[order(table(dfIxodesDataAvailable$species_name))]), aes(x=Var1, y=Freq, fill=Var1)) +
@@ -93,9 +105,9 @@ SpeciesDistributionGraph <- ggplot(as.data.frame(table(dfIxodesDataAvailable$spe
   theme(axis.text.x=element_blank(),
         axis.ticks.x=element_blank(),
         axis.text.y=element_text(size = 10),
-        axis.title.x=element_text(size = 15, face="bold"),
-        axis.title.y=element_text(size = 15, face="bold"),
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title.x=element_text(size = 12, face="bold"),
+        axis.title.y=element_text(size = 12, face="bold"),
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
         text = element_text(family = "AppleGothic"))
 SpeciesDistributionGraph
 
@@ -103,6 +115,8 @@ SpeciesDistributionGraph
 Figure 1. Distribution of BOLD entries available for each species of *Ixodes* in Canada. Miniture graph to the left represents a zoomed in view of the same data. Record counts are labeled as numbers above respective bars. Majority species is *Ixodes scapularis* as expected due to concern as main carrier of lyme disease. 
 
 ```{r Process Outlier in Nucleotide Sequences, echo=FALSE, message=FALSE, results='hide'}
+
+###PROCESS OUTLIER IN NUCLEOTIDE SEQUENCES
 
 #Remember our previous finding that there were some outline sequences in the 800nts range
 #Now we check for the species in that range
@@ -128,6 +142,9 @@ dfIxodesDataAvailable <- subset(dfIxodesDataAvailable, nchar(nucleotides) > 640)
 ```
 
 ```{r Clean Seqeunce Data and Pick Random Representitive Sequences for Each Species}
+
+###PREPARE DATA FOR ALIGNMENT
+#Clean Seqeunce Data and Pick Random Representitive Sequences for Each Species
 
 #Set up some parameters for sequence structure & alignment
 missing.data <- 0.01
@@ -162,6 +179,8 @@ sequenceLengthDistributionHistogram(repSequences$nucleotides2)
 
 ```{r Create Distance Matrix}
 
+###CREAT DISTANCE MATRIX
+
 #Change to appropriate data format for alignment
 repSequences <- as.data.frame(repSequences) #change to dataframe
 repSequences$nucleotides3 <- DNAStringSet(repSequences$nucleotides2) #Add column with DNA stringset
@@ -184,6 +203,9 @@ distanceMatrix <- dist.dna(alignmentBIN, model = chosen.model, as.matrix = TRUE,
 ```
 
 ```{r Construct Phylogeny}
+
+###CONSTRUCT PHYLOGENY
+
 #clustering (view plot)
 clusters <- DECIPHER::TreeLine(myDistMatrix = distanceMatrix,
                                    method = clustering.method,
@@ -192,14 +214,18 @@ clusters <- DECIPHER::TreeLine(myDistMatrix = distanceMatrix,
                                    type = "dendrogram",
                                    verbose = TRUE)
 clusters
+
+#convert datatype for plotting
 phyloData <- as.hclust(clusters)
 phyloData <- as.phylo(phyloData)
 ```
 
 ```{r Maximum Liklihood Phylogeny (not used)}
+
+###MAXIMUM LIKELIHOOD PHYLOGENY (NOT USED IN GRAPH)
 #Other phylogeny methods, but failed to get correct data format for plotting
 
-#try maxinum liklihood
+#try maximum likelihood
 
 #make neighbour joining tree
 njTree <- nj(distanceMatrix)
@@ -217,19 +243,23 @@ AIC(njTreeLikelihood)
 AIC(njTreeLikelihoodOptimized)
 #lower AIC value is better, optimization was a success
 
-#Check out the different trees
-plot(njTreeLikelihood, main="Ixodes UPGMA Neighbour Joining Phylogeny")
-plot(njTreeLikelihoodOptimized, main="Ixodes UPGMA Neighbour Joining Phylogeny")
+#Check out the new tree
+plot(njTreeLikelihoodOptimized, main="Ixodes UPGMA Neighbour Joining Phylogeny Optimized")
 #Better than clustering!
 
 ```
 
 ```{r Find Best Model (from common models) and Model Phylogeny (not used)}
+
+###FIND BEST MODEL AND MODEL PHYLOGENY (NOT USED IN GRAPH)
 #Other phylogeny methods, but failed to get correct data format for plotting
 
+#try common models and determine best model
 mt <- modelTest(as.phyDat(alignmentBIN), model=c("JC", "F81", "K80", "HKY", "SYM", "GTR"), control = pml.control(trace = 0))
+#save phylogeny from best model
 best_mt <- pml_bb(mt, control = pml.control(trace = 0))
 
+#calculate distances and plot 
 bs <- bootstrap.pml(best_mt, bs=100, optNni=TRUE, control = pml.control(trace = 0))
 plotBS(midpoint(best_mt$tree), p = .5, type="p", digits=2, main="Ultrafast bootstrap")
 plotBS(midpoint(best_mt$tree), bs, p = 50, type="p", main="Standard bootstrap")
@@ -242,6 +272,8 @@ tree_stdbs <- plotBS(best_mt$tree, bs, type = "n")
 
 ```{r Plot Geophylogeny}
 
+###PLOT PHYLOGENY
+
 #Simplify location data
 dfcurated <- dfIxodesDataAvailable[ , c("species_name", "lat", "lon")]
 dfcurated <- distinct(dfcurated, species_name, lat, lon) #remove repeats
@@ -250,19 +282,25 @@ dfcurated$species_name <- NULL #remove species name
 dfcurated <- as.matrix(dfcurated) #convert to matrix
 row.names(dfcurated) <- row_names #add back species name as row names
 
+#check that data is heretical and binary, and the species names match
 is.ultrametric(phyloData)
 is.binary(phyloData)
 all.equal(phyloData$tip.label, unique(rownames(dfcurated)))
 
-cols<-setNames(sample(viridis(n=Ntip(phyloData))),
-               phyloData$tip.label)
+#set colors
+cols<-setNames(sample(viridis(n=Ntip(phyloData))), phyloData$tip.label)
 
+#create geophylogeny map
 tree_map <- phylo.to.map(tree = phyloData, coords = dfcurated, rotate = F, type = "phylogram", regions = "Canada", plot = F)
 
-plot(tree_map, xlim = c(-150, -50), ylim = c(40, 90), split = c(0.5, 0.5), fsize = 1, ftype = "i", asp = 2, from.tip = F, map.bg = "lightgray", lwd = 0, pts = T, colors = cols, cex.points = 1.5, delimit_map = T, direction="rightwards")
+#plot geophylogeny map
+plot(tree_map, main="Geographical Distribution of Ixodes spp. in Canada", xlim = c(-150, -50), ylim = c(40, 90), split = c(0.5, 0.5), fsize = 1, ftype = "i", asp = 2, from.tip = F, map.bg = "azure", lwd = 0, pts = T, colors = cols, cex.points = 1.5, delimit_map = T, direction="rightwards")
+
+#plot geophylogeny map (Zoomed in)
+plot(tree_map, main="Geographical Distribution of Ixodes spp. in Canada", xlim = c(-100, -50), ylim = c(40, 60), split = c(0.4, 0.5), fsize = 0.8, ftype = "i", asp = 2, from.tip = F, map.bg = "azure", lwd = 0, pts = T, colors = cols, cex.points = 1, delimit_map = T, direction="rightwards")
 
 ```
-
+Figure 2. Geographical distribution of *Ixodes spp.* in Canada
 
 
 
